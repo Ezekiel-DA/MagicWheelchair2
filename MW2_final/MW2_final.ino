@@ -15,17 +15,22 @@ CRGB frontWheel[NUM_LEDS_FRONT_WHEEL];
 CRGB backWheel[NUM_LEDS_BACK_WHEEL];
 CRGB sideLights[NUM_LEDS_SIDE_LIGHTS];
 CRGB headlight[NUM_LEDS_HEADLIGHT];
-CRGB speedo[NUM_LEDS_SPEEDO];
+CRGB speedo[NUM_LEDS_SPEEDO_RING];
 
 int maxAnalogRead = 600;
 int minAnalogRead = 0;
-int currentHeadlightColor = 0;
-unsigned short currentHue = 128;
+unsigned short currentHue = STARTING_HUE;
 
 bool colorShifting = false;
 bool globalOn = false;
 
 void setAll(CRGB c, CRGB* strip, unsigned int numLeds) {
+  for (unsigned int i = 0; i < numLeds; ++i) {
+    strip[i] = c;
+  }
+}
+
+void setAll(CHSV c, CRGB* strip, unsigned int numLeds) {
   for (unsigned int i = 0; i < numLeds; ++i) {
     strip[i] = c;
   }
@@ -41,12 +46,11 @@ void handleButtons(AceButton* button, uint8_t eventType, uint8_t buttonState) {
       switch (button->getId()) {
         case POWER_SWITCH_ID:
           globalOn = true;
-          currentHeadlightColor = 0;
-          setAll(headlightColors[currentHeadlightColor], headlight, NUM_LEDS_HEADLIGHT);
+          currentHue = STARTING_HUE;
+          setAll(CHSV(currentHue, 255, 255), headlight, NUM_LEDS_HEADLIGHT);
           Serial.println("startup");
           break;
         case COLOR_BUTTON_ID:
-          setAll(headlightColors[++currentHeadlightColor % HEADLIGHT_COLORS_COUNT], headlight, NUM_LEDS_HEADLIGHT);
           colorShifting = true;
           Serial.println("color");
           break;
@@ -77,16 +81,16 @@ void allLEDsOff() {
   setAll(CRGB::Black, backWheel, NUM_LEDS_BACK_WHEEL);
   setAll(CRGB::Black, sideLights, NUM_LEDS_SIDE_LIGHTS);
   setAll(CRGB::Black, headlight, NUM_LEDS_HEADLIGHT);
-  setAll(CRGB::Black, speedo, NUM_LEDS_SPEEDO);
+  setAll(CRGB::Black, speedo, NUM_LEDS_SPEEDO_RING);
   showStrips();
 }
 
-void updateSpeedo(unsigned short val) {
+void updateSpeedo(unsigned short val, unsigned short rpm) {
   static unsigned long previousUpdate = millis();
   unsigned long currentTime = millis();
   float elapsed = currentTime - previousUpdate;
 
-  if (elapsed < 50) {
+  if (elapsed < 16) {
     return; 
   }
   previousUpdate = currentTime;
@@ -94,10 +98,15 @@ void updateSpeedo(unsigned short val) {
   unsigned short speedoVal = constrain(map(val, minAnalogRead, maxAnalogRead-5, 0, NUM_LEDS_SPEEDO), 0, NUM_LEDS_SPEEDO);
   for (unsigned int i = 0; i < NUM_LEDS_SPEEDO; ++i) {
     if (i < speedoVal)
-      //speedo[i] = CHSV(i*4, 255, 128);
-      speedo[i] = CRGB(constrain(i*12, 0, 255), constrain(255-i*12, 0, 255), 0) % (255*0.3);
+      speedo[i] = CHSV(constrain(map(i, 0, NUM_LEDS_SPEEDO, 96, 0)-10, 0, 96), 255, 50); // -x => red shift this a little
     else
       speedo[i] = CRGB::Black;
+  }
+
+  unsigned short energy = beatsin8(rpm, 50, MAX_ENERGY);
+  CHSV color(currentHue, 255, energy);
+  for (unsigned int i = NUM_LEDS_SPEEDO + 1; i < NUM_LEDS_SPEEDO_RING -1; ++i) {
+    speedo[i] = color;
   }
 }
 
@@ -199,9 +208,9 @@ void animateSideLights(unsigned short rpm, CRGB* strip, unsigned short numLeds) 
   previousUpdate = currentTime;
   
   unsigned short energy = beatsin8(rpm, 0, MAX_ENERGY);
-  CRGB color = CRGB(0, energy, energy) % (255*0.3);
+  CHSV color(currentHue, 255, energy);
   for (unsigned int i = 0; i < numLeds; ++i) {
-    strip[i] = CRGB(0, energy, energy);
+    strip[i] = color;
   }
 }
 
@@ -219,6 +228,23 @@ void shiftColors() {
     
   ++currentHue;
 }
+
+void updateHeadlight() {
+  static unsigned long previousUpdate = millis();
+  unsigned long currentTime = millis();
+  float elapsed = currentTime - previousUpdate;
+
+  if (elapsed < 50) {
+    return; 
+  }
+  previousUpdate = currentTime;
+    
+  if (!globalOn)
+    setAll(CRGB::Black, headlight, NUM_LEDS_HEADLIGHT);
+  else
+    setAll(CHSV(currentHue, 255, 255), headlight, NUM_LEDS_HEADLIGHT);
+}
+
 
 void setup() {
   pinMode(SW_0_PIN, INPUT_PULLUP);
@@ -240,7 +266,7 @@ void setup() {
   FastLED.addLeds<SK9822, STRIP_5_DATA, STRIP_5_CLOCK, BGR>(sideLights, NUM_LEDS_SIDE_LIGHTS);
   // NB: attach other side of sidelights to power and GND for STRIP_6, then attach data and clock to STRIP_5
   // ==== STRIP_7 NOT CONNECTED ====
-  FastLED.addLeds<WS2812B, STRIP_8_DATA, GRB>(speedo, NUM_LEDS_SPEEDO);
+  FastLED.addLeds<WS2812B, STRIP_8_DATA, GRB>(speedo, NUM_LEDS_SPEEDO_RING);
   FastLED.addLeds<WS2812B, STRIP_9_DATA, GRB>(headlight, NUM_LEDS_HEADLIGHT);
   
   allLEDsOff();
@@ -269,11 +295,12 @@ void loop() {
     maxAnalogRead = analogVal;
 
   outputThrottlePositionToSerial(analogVal);
-  updateSpeedo(analogVal);
   unsigned short rpm = constrain(map(analogVal, minAnalogRead, maxAnalogRead-5, MIN_RPM, MAX_RPM), MIN_RPM, MAX_RPM);
+  updateSpeedo(analogVal, rpm);
   animateFrontWheel(rpm, frontWheel, NUM_LEDS_FRONT_WHEEL, FRONT_OFFSET, CHASE_LENGTH_FRONT);
   animateBackWheel(rpm, backWheel, NUM_LEDS_BACK_WHEEL, BACK_OFFSET, CHASE_LENGTH_BACK);
   animateSideLights(rpm, sideLights, NUM_LEDS_SIDE_LIGHTS);
   shiftColors();
+  updateHeadlight();
   showStrips();
 }
