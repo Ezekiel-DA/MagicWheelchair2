@@ -23,3 +23,5 @@
 #define SW_1_PIN 10
 #define SW_2_PIN 9
 #define SW_3_PIN 8
+
+#define THROTTLE_PIN A0
