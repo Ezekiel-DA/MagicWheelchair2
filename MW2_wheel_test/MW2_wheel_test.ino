@@ -3,7 +3,7 @@
 #include <AceButton.h>
 using namespace ace_button;
 
-#define NUM_LEDS_FRONT_WHEEL 120
+#define NUM_LEDS_FRONT_WHEEL 50
 #define NUM_LEDS_BACK_WHEEL 120
 #define NUM_LEDS_HEADLIGHT 40
 #define NUM_LEDS_SPEEDO 24
@@ -86,7 +86,10 @@ void setup() {
   delay(10);
   
   FastLED.addLeds<SK9822, STRIP_0_DATA, STRIP_0_CLOCK, BGR>(frontWheel, NUM_LEDS_FRONT_WHEEL);
-  FastLED.addLeds<SK9822, STRIP_1_DATA, STRIP_1_CLOCK, BGR>(backWheel, NUM_LEDS_BACK_WHEEL);
+  // NB: attach other side of front to power and GND for STRIP_1, then attach data and clock to STRIP_0
+  FastLED.addLeds<SK9822, STRIP_2_DATA, STRIP_2_CLOCK, BGR>(backWheel, NUM_LEDS_BACK_WHEEL);
+  // NB: attach other side of rear to power and GND for STRIP_3, then attach data and clock to STRIP_2
+  //FastLED.addLeds<SK9822, STRIP_4_DATA, STRIP_4_CLOCK, BGR>(backWheel, NUM_LEDS_BACK_WHEEL);
   FastLED.addLeds<WS2812B, STRIP_9_DATA, GRB>(headlight, NUM_LEDS_HEADLIGHT);
   FastLED.addLeds<WS2812B, STRIP_8_DATA, GRB>(speedo, NUM_LEDS_SPEEDO);
   
@@ -115,11 +118,6 @@ bool isWithinChase(unsigned int pos) {
 int analogVal = 0;
 
 void loop() {
-//  int sw0 = !digitalRead(SW_0_PIN);
-//  if (sw0) {
-//    setAll(headlightColors[currentHeadlightColor++ % 3], headlight, NUM_LEDS_HEADLIGHT);
-//    //setAll(CRGB::Black, frontWheel, NUM_LEDS_FRONT_WHEEL);
-//  }
   sw0.check();
 
   analog.update();
@@ -127,9 +125,11 @@ void loop() {
   if (analogVal > maxAnalogRead)
     maxAnalogRead = analogVal;
   //Serial.println(val);
-  analogVal = map(analogVal, minAnalogRead, maxAnalogRead-5, 0, NUM_LEDS_SPEEDO);
-  analogVal = constrain(analogVal, 0, NUM_LEDS_SPEEDO);
-  //Serial.println(val);
+  //analogVal = map(analogVal, minAnalogRead, maxAnalogRead-5, 0, NUM_LEDS_SPEEDO);
+  //analogVal = constrain(analogVal, 0, NUM_LEDS_SPEEDO);
+  analogVal = map(analogVal, minAnalogRead, maxAnalogRead-5, 0, 100);
+  analogVal = constrain(analogVal, 0, 100);
+  Serial.println(analogVal);
 
   for (unsigned int i = 0; i < NUM_LEDS_SPEEDO; ++i) {
     if (i < analogVal)
